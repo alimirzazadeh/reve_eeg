@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Data loading utilities for EEG pre-training.
 

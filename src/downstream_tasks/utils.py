@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Shared training utilities for downstream experiments (seed, warmup, patience)."""
 
 import random

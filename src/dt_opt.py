@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Optuna-driven downstream training script for hyperparameter search."""
 
 import copy

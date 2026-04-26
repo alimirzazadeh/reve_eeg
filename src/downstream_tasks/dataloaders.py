@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Common dataloaders for different tasks.
 """

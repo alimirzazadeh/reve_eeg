@@ -1,10 +1,20 @@
+from __future__ import annotations
+
 """
 Initialization functions for the model.
 """
 
 import math
+import sys
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
+
+# StrEnum was added in Python 3.11; provide a backport for 3.9/3.10
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    class StrEnum(str, Enum):
+        pass
 
 import torch
 from torch import nn

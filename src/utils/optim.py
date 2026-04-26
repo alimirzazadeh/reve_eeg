@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Optimizer and scheduler factories, including trapezoid LR schedule wrapping."""
 
 import hydra

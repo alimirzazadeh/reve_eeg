@@ -1,5 +1,7 @@
 """Transformer backbone layers used by REVE encoder/decoder modules."""
 
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
 from einops import rearrange

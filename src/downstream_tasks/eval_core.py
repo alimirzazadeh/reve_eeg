@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Core functions for evaluating fine-tuned models.
 """

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Utilities to resolve electrode names or files into 3D position tensors."""
 
 from functools import lru_cache
@@ -7,13 +9,23 @@ import torch
 from transformers import AutoModel
 
 
+import os as _os
+
+# Absolute path to the repo-level .cache dir, so it works regardless of CWD
+# (Hydra changes CWD to its output directory, so a relative ".cache" would break)
+_REPO_CACHE_DIR = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+    ".cache",
+)
+
+
 @lru_cache(maxsize=1)
 def _get_position_model():
     return AutoModel.from_pretrained(
         "brain-bzh/reve-positions",
         trust_remote_code=True,
         dtype="auto",
-        cache_dir=".cache",
+        cache_dir=_REPO_CACHE_DIR,
     )
 
 

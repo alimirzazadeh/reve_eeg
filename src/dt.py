@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Main downstream training script for linear probing and fine-tuning."""
 
 import os

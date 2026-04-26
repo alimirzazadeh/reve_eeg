@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """MOABB-backed dataset wrapper used by downstream Hydra task configs."""
 
 import hydra

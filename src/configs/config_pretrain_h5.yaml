@@ -1,0 +1,67 @@
+defaults:
+  - _self_
+  - encoder: base
+  - decoder: base
+  - optimizer: stable_adamw
+  - scheduler: trapezoid
+  - preprocessing: default
+  - init: mae
+
+name: pretrain_h5
+
+mode: train  # train or debug
+
+seed: 42
+
+token_avg: True
+token_avg_lambda: 0.1
+
+# ---------------------------------------------------------------------------
+# Data — h5 files from the internal Harvard EEG dataset
+# ---------------------------------------------------------------------------
+data:
+  # Directory containing the preprocessed h5 files
+  h5_dir: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
+
+  # CSV with BDSPPatientID, SiteID, split columns — uses split=='train'/'val'
+  split_csv: /orcd/home/002/alimirz/2026/EEG_FM/EEG_FM/taming-transformers/data/patient_train_val_test_split.csv
+
+  # Dummy path kept so get_accelerator's wandb path check doesn't crash
+  path: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
+
+  loader:
+    num_workers: ${min:8, ${cpu_count:}}
+    prefetch_factor: 2
+
+trainer:
+  epochs: 50
+  accumulate_grad_batches: 1
+  lr: 0.001
+  batch_size: 64        # per-GPU batch size; increase if VRAM allows
+  grad_clip: True
+  grad_clip_norm: 5.0
+
+  n_gpus: ${gpu_count:}
+  n_nodes: 1
+
+checkpointing:
+  path: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_pretrain_checkpoints
+  load_last_state: False
+  state_path: ${checkpointing.path}/states/
+  max_states: 3
+  keep_last: True
+
+wandb:
+  log: False
+  path: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_pretrain_wandb
+  tags: ["pretraining", "reve", "harvard_h5"]
+  comment: REVE pretraining on internal Harvard EEG h5 dataset
+  project: foundation_EEG
+  entity: entity_name
+  offline: False
+
+hydra:
+  run:
+    dir: outputs/pretrain_h5/${now:%Y.%m.%d}/${now:%H%M%S}
+  job:
+    chdir: true
