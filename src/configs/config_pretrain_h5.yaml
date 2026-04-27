@@ -37,7 +37,7 @@ trainer:
   epochs: 50
   accumulate_grad_batches: 1
   lr: 0.001
-  batch_size: 64        # per-GPU batch size; increase if VRAM allows
+  batch_size: 128       # per-GPU batch size; increase if VRAM allows
   grad_clip: True
   grad_clip_norm: 5.0
 

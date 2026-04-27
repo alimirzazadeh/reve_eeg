@@ -100,7 +100,10 @@ def train_h5(args):
     # -------------------------------------------------------------------------
     # TensorBoard — only on main process, logs to checkpointing.path/tb_logs
     # -------------------------------------------------------------------------
-    tb_log_dir = pjoin(args.checkpointing.path, "tb_logs", args.name)
+    tb_log_dir = pjoin(
+        args.checkpointing.path, "tb_logs",
+        f"{args.name}_{time.strftime('%Y%m%d_%H%M%S')}",
+    )
     if accelerator.is_main_process:
         os.makedirs(tb_log_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=tb_log_dir)
@@ -115,7 +118,8 @@ def train_h5(args):
     mae = accelerator.prepare(mae)
 
     optimizer = get_optimizer(mae.parameters(), args.optimizer)
-    scheduler = get_lr_scheduler(optimizer, args, n_iter_per_train)
+    n_total_steps = n_iter_per_train * args.trainer.epochs
+    scheduler = get_lr_scheduler(optimizer, args, n_total_steps)
 
     train_loader = ensure_type(accelerator.prepare(train_loader), DataLoader)
     if val_loader is not None:
@@ -183,9 +187,9 @@ def train_h5(args):
         if writer is not None:
             writer.add_scalar("epoch/train_loss", epoch_train_loss, epoch)
 
-        # -- Validation -------------------------------------------------------
+        # -- Validation (every other epoch) -----------------------------------
         val_loss = None
-        if val_loader is not None:
+        if val_loader is not None and epoch % 2 == 0:
             val_loss = _run_val_epoch(mae, val_loader, accelerator)
             if writer is not None:
                 writer.add_scalar("epoch/val_loss", val_loss, epoch)
@@ -193,6 +197,12 @@ def train_h5(args):
                 f"\nEpoch {epoch:3d} | train_loss {epoch_train_loss:.4f} "
                 f"| val_loss {val_loss:.4f} | skipped {epoch_skipped} ({skip_pct:.1f}%) "
                 f"| {time.time()-start:.1f}s"
+            )
+        elif val_loader is None and epoch == 0:
+            accelerator.print("  WARNING: no validation files found — check split_csv or val_file_list")
+            accelerator.print(
+                f"\nEpoch {epoch:3d} | train_loss {epoch_train_loss:.4f} "
+                f"| skipped {epoch_skipped} ({skip_pct:.1f}%) | {time.time()-start:.1f}s"
             )
         else:
             accelerator.print(

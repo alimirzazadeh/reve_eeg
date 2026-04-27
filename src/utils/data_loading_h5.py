@@ -74,6 +74,7 @@ class H5EEGDataset(Dataset):
         radius_temp_mask=3,
         dropout_ratio=0.1,
         dropout_radius=0.04,
+        fixed_start=False,
     ):
         # Filter out known bad files
         filtered = [
@@ -85,6 +86,7 @@ class H5EEGDataset(Dataset):
 
         self.file_list = [os.path.join(data_dir, f.strip()) for f in filtered]
         self.window_duration = window_duration
+        self.fixed_start = fixed_start
         self.clip = clip
         self.masking_ratio = masking_ratio
         self.masking_window = masking_window
@@ -107,7 +109,7 @@ class H5EEGDataset(Dataset):
             rec = f["recording"]
             total_samples = rec["data"].shape[0]
             max_start = total_samples - self.window_duration
-            start = random.randint(0, max(max_start, 0))
+            start = 0 if self.fixed_start else random.randint(0, max(max_start, 0))
             ch_names_raw = rec["ch_names"][:]
             raw = rec["data"][start : start + self.window_duration, :]  # (T, C_file)
 
@@ -254,6 +256,7 @@ def _make_loader_from_list(file_list, args, shuffle):
         radius_temp_mask=mask_cfg.radius_temp_mask,
         dropout_ratio=mask_cfg.dropout_ratio,
         dropout_radius=mask_cfg.dropout_radius,
+        fixed_start=not shuffle,
     ))
     print(f"  {'Train' if shuffle else 'Val'} dataset: {len(dataset):,} files")
     nw = args.data.loader.num_workers

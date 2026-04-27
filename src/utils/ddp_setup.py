@@ -97,8 +97,11 @@ def save_state(accelerator: Accelerator, args, epoch):
 
 
 def save_encoder(accelerator: Accelerator, mae, args, epoch):
+    if not accelerator.is_main_process:
+        return
     encoder = accelerator.unwrap_model(mae).encoder
     save_path = pjoin(args.checkpointing.state_path, f"epoch_{epoch}", "encoder.pth")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     accelerator.save(encoder.state_dict(), save_path)
     accelerator.print(f"Saved to {os.path.abspath(save_path)}")
     logger.info(f"Saved to {os.path.abspath(save_path)}")
