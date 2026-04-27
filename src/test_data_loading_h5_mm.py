@@ -37,7 +37,11 @@ def parse_args():
     )
     p.add_argument(
         "--split_csv",
-        default="/orcd/home/002/alimirz/2026/EEG_FM/EEG_FM/taming-transformers/data/patient_train_val_test_split.csv",
+        default=os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "utils",
+            "patient_train_val_test_split.csv",
+        ),
         help="CSV with BDSPPatientID/SiteID/split columns. If given, the 'val' split is used.",
     )
     p.add_argument(
