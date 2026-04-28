@@ -138,6 +138,11 @@ trainer:
   auto_scale_lr: True
   grad_clip: True
   grad_clip_norm: 5.0                                # grad_clip
+  # If any nn.Module parameter does not contribute to loss this step, DDP
+  # will error out. Set this to True to fall back to the slower-but-tolerant
+  # mode. With learnable_logit_scale=False we keep it False; flip on if you
+  # add modules that conditionally skip during forward.
+  find_unused_parameters: False
 
   n_gpus: ${gpu_count:}
   n_nodes: 1

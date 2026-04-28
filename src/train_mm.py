@@ -72,6 +72,7 @@ def build_model(args) -> MultiModalEncoder:
         disable_clip=clip.disable_clip,
         disable_profile=clip.disable_profile,
         disable_text=clip.disable_text,
+        learnable_logit_scale=clip.loss.learnable_logit_scale,
     )
 
 

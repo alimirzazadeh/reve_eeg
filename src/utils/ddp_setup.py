@@ -9,7 +9,7 @@ from logging import getLogger as default_getLogger
 from os.path import join as pjoin
 from typing import Any, TypeVar
 
-from accelerate import Accelerator
+from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.logging import get_logger as accelerate_get_logger
 from accelerate.utils import InitProcessGroupKwargs
 from omegaconf import OmegaConf
@@ -36,10 +36,17 @@ def get_accelerator(args):
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
     timeout = InitProcessGroupKwargs(timeout=timedelta(minutes=NCCL_TIMEOUT))
+    handlers: list = [timeout]
+
+    # Optional: enable DDP find_unused_parameters when configured (needed when
+    # some module's params don't take part in computing loss every step).
+    find_unused = bool(getattr(args.trainer, "find_unused_parameters", False))
+    if find_unused:
+        handlers.append(DistributedDataParallelKwargs(find_unused_parameters=True))
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.trainer.accumulate_grad_batches,
-        kwargs_handlers=[timeout],
+        kwargs_handlers=handlers,
         log_with="wandb" if args.wandb.log else None,
     )
 

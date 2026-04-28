@@ -66,6 +66,7 @@ class MultiModalEncoder(nn.Module):
         disable_clip: bool = False,
         disable_profile: bool = False,
         disable_text: bool = False,
+        learnable_logit_scale: bool = False,
     ):
         super().__init__()
 
@@ -153,8 +154,16 @@ class MultiModalEncoder(nn.Module):
         self.text_width = text_width
         self.profile_width = profile_width
         self.emb_dim = emb_dim
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
-        self.logit_scale_profile = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        # Register as Parameter only when learnable; otherwise as a buffer so
+        # DDP doesn't complain about unused params (CLIPLoss replaces these
+        # with a constant tensor when learnable_logit_scale is False).
+        init_val = torch.ones([]) * np.log(1 / 0.07)
+        if learnable_logit_scale:
+            self.logit_scale = nn.Parameter(init_val.clone())
+            self.logit_scale_profile = nn.Parameter(init_val.clone())
+        else:
+            self.register_buffer("logit_scale", init_val.clone())
+            self.register_buffer("logit_scale_profile", init_val.clone())
         self.initialize_weights()
 
     def _load_reve_weights(self, ckpt_path: str):
