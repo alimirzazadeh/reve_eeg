@@ -1,0 +1,169 @@
+defaults:
+  - _self_
+  - encoder: base
+  - decoder: base       # unused, kept so existing helpers / validators still resolve
+  - optimizer: adamw    # matches argparse defaults (AdamW)
+  - scheduler: trapezoid
+  - preprocessing: default
+  - init: mae
+
+name: train_mm
+
+mode: train  # train, debug
+
+seed: 42
+
+# Root directory for run artifacts (checkpoints, wandb). Override on the CLI
+# via `scratch=/some/other/path` if needed.
+scratch: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_clip
+
+# ---------------------------------------------------------------------------
+# Debug overrides applied automatically when `mode=debug` is set.
+# Used to keep one-off sanity-checks fast (small batch, few epochs / files,
+# no dataloader workers, no wandb). Tweak any field below or override on the
+# CLI, e.g. `mode=debug debug.epochs=1 debug.max_files=10`.
+# ---------------------------------------------------------------------------
+debug:
+  epochs: 2
+  batch_size: 4
+  num_workers: 0
+  prefetch_factor: null
+  max_files: 50          # cap the train set to this many h5 files (null = no cap)
+  disable_wandb: True
+  log_every: 1
+
+# ---------------------------------------------------------------------------
+# Optimizer / scheduler overrides to match the argparse-based pre-training
+# defaults: AdamW(wd=0.1, betas=(0.9, 0.95), eps=1e-8); 1-epoch warmup over
+# 20 epochs (= 5%), then constant LR (no cooldown).
+# ---------------------------------------------------------------------------
+optimizer:
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  warmup_steps: 0.05      # 1 / trainer.epochs (1-epoch warmup over 20 epochs)
+  plateau_steps: 0.95     # constant LR for the rest of training
+  cooldown_steps: 0.0
+  start_lr: 1.0e-6
+  peak_lr: ${trainer.lr}
+  end_lr: ${trainer.lr}   # constant after warmup (no cooldown)
+
+# ---------------------------------------------------------------------------
+# Multimodal CLIP model + loss settings (mirrors the argparse defaults)
+# ---------------------------------------------------------------------------
+clip:
+  reve:
+    num_channels: 19
+    # path to a pretrained REVE encoder.pth (file saved by train.py).
+    # Set to null to skip loading and train REVE from scratch.
+    checkpoint_path: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_pretrain_checkpoints/states/pretrain_h5/encoder_final.pth
+    time_pool: mean        # mean | max
+
+  text:
+    num_layers: 4                                    # text_model_num_layers
+    nhead: 8                                         # text_model_nhead
+    model_name: google/t5-v1_1-base                  # text_model_name
+    cache_dir: /orcd/compute/dinaktbi/001/2026/EEG_FM/model_weights  # text_model_cache_dir
+    context_length: 256                              # text_model_context_length
+    use_augment: False                               # use_text_augment
+    aggregation: mean                                # text_aggregation (eos | mean)
+
+  profile:
+    num_layers: 4                                    # profile_encoder_num_layers
+    nhead: 8                                         # profile_encoder_nhead
+    disable_multilevel: True                         # disable_profile_multilevel
+    multilevel_embedding_type: sum                   # profile_multilevel_embedding_type
+    demo_only: False                                 # profile_demo_only
+    use_augment: False                               # use_profile_augment
+    disease_level: -1
+    medication_level: -1
+    disable_seg_embed: True                          # disable_seg_embed
+
+  text_width: 512
+  profile_width: 512
+  emb_dim: 512                                       # emb_dim
+  vl_projection: linear                              # vl_projection (linear | mlp)
+  mlp_dim: 2048                                      # mlp_dim
+
+  disable_clip: False
+  disable_profile: False
+  disable_text: False
+
+  loss:
+    w1: 0.0  # img_recon — no MAE here
+    w2: 1.0  # img-text contrastive
+    w3: 1.0  # img-profile contrastive
+    mask_rate_max_threshold_clip: 1.0                # mask_rate_max_threshold_clip
+    mask_rate_min_threshold_recon: 0.0               # mask_rate_min_threshold_recon
+    learnable_logit_scale: False
+    soft_contrastive_loss_text: False
+    soft_contrastive_loss_profile: False
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+data:
+  h5_dir: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
+  split_csv: ${cwd:}/utils/patient_train_val_test_split.csv
+  path: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
+  loader:
+    num_workers: ${min:16, ${cpu_count:}}
+    prefetch_factor: 3
+  subset: all
+
+  # multimodal kwargs consumed by data_loading_h5_mm
+  disable_clip: ${clip.disable_clip}
+  report_dir: /orcd/compute/dinaktbi/001/2026/EEG_FM/processed_reports
+  tokenizer_model_name: ${clip.text.model_name}
+  tokenizer_cache_dir: ${clip.text.cache_dir}
+  max_text_length: ${clip.text.context_length}
+  max_num_disease: 30
+  max_num_medication: 50
+
+# ---------------------------------------------------------------------------
+# Trainer
+# ---------------------------------------------------------------------------
+trainer:
+  epochs: 20                                         # epochs
+  accumulate_grad_batches: 1                         # accum_iter
+  batch_size: 32                                     # batch_size (per GPU)
+  blr: 1.0e-3                                        # blr (base lr; absolute_lr = blr * total_bs / 256)
+  # Default below = blr * batch_size / 256 (single GPU). For multi-GPU, override on the CLI:
+  #   trainer.lr=$(python -c 'print(1e-3 * 32 * NGPUS / 256)')
+  lr: 1.25e-4
+  grad_clip: True
+  grad_clip_norm: 5.0                                # grad_clip
+
+  n_gpus: ${gpu_count:}
+  n_nodes: 1
+
+# Stretch the LR schedule across the entire run (warmup_epochs=1 / constant
+# after) instead of cycling it every epoch, matching the argparse-based setup.
+scheduler_full_run: True
+
+# ---------------------------------------------------------------------------
+# Checkpointing / logging
+# ---------------------------------------------------------------------------
+checkpointing:
+  path: ${scratch}/checkpoints
+  load_last_state: False
+  state_path: ${checkpointing.path}/states/
+  max_states: 5
+  keep_last: True
+
+wandb:
+  log: False
+  path: ${scratch}/wandb
+  tags: ["training", "reve_clip"]
+  comment: REVE + CLIP multimodal training
+  project: foundation_EEG
+  entity: entity_name
+  offline: False
+
+hydra:
+  run:
+    dir: outputs/${mode}_mm/${now:%Y.%m.%d}/${now:%H%M%S}
+  job:
+    chdir: true
