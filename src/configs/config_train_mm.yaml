@@ -25,10 +25,10 @@ scratch: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_clip
 # ---------------------------------------------------------------------------
 debug:
   epochs: 2
-  batch_size: 4
+  batch_size: 32
   num_workers: 0
   prefetch_factor: null
-  max_files: 50          # cap the train set to this many h5 files (null = no cap)
+  max_files: 1000          # cap the train set to this many h5 files (null = no cap)
   disable_wandb: True
   log_every: 1
 
