@@ -96,9 +96,10 @@ def save_state(accelerator: Accelerator, args, epoch):
 
         ls = [int(f.split("_")[-1]) for f in os.listdir(args.checkpointing.state_path) if f.startswith("epoch_")]
 
-        if len(ls) > args.checkpointing.max_states:
+        max_states = args.checkpointing.max_states
+        if max_states is not None and len(ls) > max_states:
             ls.sort()
-            logger.info(f"Removing {len(ls) - args.checkpointing.max_states} old checkpoints")
+            logger.info(f"Removing {len(ls) - max_states} old checkpoints")
             for f in ls[: -args.checkpointing.keep_last]:
                 shutil.rmtree(pjoin(args.checkpointing.state_path, f"epoch_{f}"))
 

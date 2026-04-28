@@ -237,12 +237,15 @@ def train_clip(args):
 
         save_state(accelerator, args, epoch)
 
-    if accelerator.is_main_process:
-        unwrapped = accelerator.unwrap_model(model)
-        accelerator.save(unwrapped.visual.state_dict(), "encoder.pth")
-        accelerator.save(unwrapped.state_dict(), "model_clip.pth")
-        accelerator.print(f"Saved encoder to {os.path.abspath('encoder.pth')}")
-        accelerator.print(f"Saved full model to {os.path.abspath('model_clip.pth')}")
+        if accelerator.is_main_process:
+            unwrapped = accelerator.unwrap_model(model)
+            epoch_dir = pjoin(args.checkpointing.state_path, f"epoch_{epoch}")
+            encoder_path = pjoin(epoch_dir, "encoder.pth")
+            model_path = pjoin(epoch_dir, "model_clip.pth")
+            accelerator.save(unwrapped.visual.state_dict(), encoder_path)
+            accelerator.save(unwrapped.state_dict(), model_path)
+            accelerator.print(f"Epoch {epoch}: saved encoder to {encoder_path}")
+            accelerator.print(f"Epoch {epoch}: saved full model to {model_path}")
 
     accelerator.print("Training took", time.time() - init_time, "seconds")
     accelerator.end_training()

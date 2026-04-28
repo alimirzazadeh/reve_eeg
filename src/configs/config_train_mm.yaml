@@ -158,7 +158,7 @@ checkpointing:
   path: ${scratch}/checkpoints
   load_last_state: False
   state_path: ${checkpointing.path}/states/
-  max_states: 5
+  max_states: null   # null = keep every epoch checkpoint; set an int to cap retention
   keep_last: True
 
 wandb:
