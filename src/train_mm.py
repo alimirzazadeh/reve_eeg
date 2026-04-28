@@ -154,6 +154,7 @@ def train_clip(args):
     if args.checkpointing.load_last_state:
         accelerator.load_state(pjoin(args.checkpointing.state_path, "last"))
 
+    debug_mode = args.mode == "debug"
     pbar = tqdm(range(args.trainer.epochs), disable=not accelerator.is_main_process)
     for epoch in pbar:
         start = time.time()
@@ -161,9 +162,11 @@ def train_clip(args):
         for batch_idx, batch in enumerate(train_loader):
             if batch is None:
                 continue
+            # Only print debug shapes on the very first batch to avoid log spam.
+            do_debug = debug_mode and epoch == 0 and batch_idx == 0
             with accelerator.accumulate(model), accelerator.autocast():
                 optimizer.zero_grad()
-                outputs = model(batch)
+                outputs = model(batch, debug=do_debug)
                 loss_dict = loss_fn(outputs)
                 loss = loss_dict["loss"]
                 accelerator.backward(loss)
