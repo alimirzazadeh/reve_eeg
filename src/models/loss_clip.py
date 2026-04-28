@@ -67,7 +67,7 @@ class CLIPLoss(nn.Module):
         return score
 
 
-    def _compute_contrastive_loss(self, feat1, feat2, logit_scale, valid_mask=None, feat2_pretrained=None, soft_label_type='none'):
+    def _compute_contrastive_loss(self, feat1, feat2, logit_scale, valid_mask=None, feat2_pretrained=None, soft_label_type='none', debug=False):
         """
         Compute contrastive loss between two feature embeddings.
         
@@ -112,6 +112,9 @@ class CLIPLoss(nn.Module):
             rank = 0
             local_size = feat1.size(0)
             labels = torch.arange(local_size, device=feat1.device)
+
+        if debug:
+            print(f"[CLIPLoss] all_valid_masks shape: {tuple(all_valid_masks.shape)}")
 
 
         # compute the logits for contrasting
@@ -161,7 +164,7 @@ class CLIPLoss(nn.Module):
         
         return contrastive_loss, num_valid
 
-    def forward(self, outputs):
+    def forward(self, outputs, debug=False):
         # Use separate image embeddings for text and profile alignments
         v_feats_text = outputs['image_emb_text']
         v_feats_profile = outputs['image_emb_profile']
@@ -194,8 +197,8 @@ class CLIPLoss(nn.Module):
             report_valid = report_valid * clip_valid
             # print('DEBUG report_valid:', report_valid.shape, report_valid.sum())
             soft_label_type = 'cosine' if self.soft_contrastive_loss_text else 'none'
-            img_txt_loss, img_txt_valid_count = self._compute_contrastive_loss(v_feats_text, t_feats, logit_scale, 
-                valid_mask=report_valid, feat2_pretrained=text_global_feature_pretrained, soft_label_type=soft_label_type)
+            img_txt_loss, img_txt_valid_count = self._compute_contrastive_loss(v_feats_text, t_feats, logit_scale,
+                valid_mask=report_valid, feat2_pretrained=text_global_feature_pretrained, soft_label_type=soft_label_type, debug=debug)
         
         if self.disable_clip or self.disable_profile:
             # Set img_profile_loss to zero when profile is disabled
@@ -207,8 +210,8 @@ class CLIPLoss(nn.Module):
             profile_valid_mask = profile_valid_mask * clip_valid
             # print('DEBUG profile_valid_mask:', profile_valid_mask.shape, profile_valid_mask.sum())
             soft_label_type = 'dsc' if self.soft_contrastive_loss_profile else 'none'
-            img_profile_loss, img_profile_valid_count = self._compute_contrastive_loss(v_feats_profile, p_feats, logit_scale_profile, 
-                valid_mask=profile_valid_mask, feat2_pretrained=one_hot_ehr, soft_label_type=soft_label_type)
+            img_profile_loss, img_profile_valid_count = self._compute_contrastive_loss(v_feats_profile, p_feats, logit_scale_profile,
+                valid_mask=profile_valid_mask, feat2_pretrained=one_hot_ehr, soft_label_type=soft_label_type, debug=debug)
 
         # print(f"Rank {rank}: img_recon_loss: {img_recon_loss}, img_txt_loss: {img_txt_loss}, img_profile_loss: {img_profile_loss}")
 

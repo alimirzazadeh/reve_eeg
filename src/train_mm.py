@@ -191,7 +191,7 @@ def train_clip(args):
             with accelerator.accumulate(model), accelerator.autocast():
                 optimizer.zero_grad()
                 outputs = model(batch, debug=do_debug)
-                loss_dict = loss_fn(outputs)
+                loss_dict = loss_fn(outputs, debug=do_debug)
                 loss = loss_dict["loss"]
                 accelerator.backward(loss)
                 if args.trainer.grad_clip and accelerator.sync_gradients:
@@ -224,6 +224,7 @@ def train_clip(args):
                         "it": batch_idx,
                         "loss": loss_g,
                         "loss_ema": loss_ema,
+                        "lr": optimizer.param_groups[0]["lr"],
                         "img_txt_loss": loss_dict["img_txt_loss"].item(),
                         "img_profile_loss": loss_dict["img_profile_loss"].item(),
                         "img_txt_valid_count": loss_dict["img_txt_valid_count"].item(),
