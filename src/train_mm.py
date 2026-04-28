@@ -160,8 +160,6 @@ def train_clip(args):
         start = time.time()
         loss_ema = None
         for batch_idx, batch in enumerate(train_loader):
-            if batch is None:
-                continue
             # Only print debug shapes on the very first batch to avoid log spam.
             do_debug = debug_mode and epoch == 0 and batch_idx == 0
             with accelerator.accumulate(model), accelerator.autocast():

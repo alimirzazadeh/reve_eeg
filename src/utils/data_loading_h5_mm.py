@@ -15,7 +15,6 @@ import ctypes
 import json
 import os
 import random
-import sys
 from functools import lru_cache
 
 import h5py
@@ -27,16 +26,19 @@ from torch.utils.data import DataLoader, Dataset
 from utils.data_loading import create_block_masks
 from utils.report_cleaner_v1 import clean_summary
 
-# Known-bad files from EEG-FM repo (bad_h5_files.py)
-sys_path_for_bad_files = os.path.join(
-    os.path.dirname(__file__), "../../../../EEG_FM/EEG_FM/rep-learning/data"
-)
-try:
-    sys.path.insert(0, sys_path_for_bad_files)
-    from bad_h5_files import bad_h5_files as BAD_H5_FILES
-    BAD_H5_FILES = set(BAD_H5_FILES)
-except Exception:
-    BAD_H5_FILES = set()
+def _can_load_h5(path):
+    """Quick sanity-check: open the file and confirm it has the fields
+    `__getitem__` will read. Returns True if loadable."""
+    try:
+        with h5py.File(path, "r") as f:
+            rec = f["recording"]
+            shape = rec["data"].shape
+            if len(shape) != 2 or shape[0] == 0 or shape[1] == 0:
+                return False
+            _ = rec["ch_names"][:]
+        return True
+    except Exception:
+        return False
 
 CHANNEL_ORDER = [
     "O1", "O2", "T6", "P4", "Pz", "P3", "T5", "T3",
@@ -135,15 +137,21 @@ class H5EEGDataset(Dataset):
         max_num_medication=50,
         mode='train',
     ):
-        # Filter out known bad files
-        filtered = [
-            f for f in file_list
-            if os.path.basename(f.strip()) not in BAD_H5_FILES
-        ]
-        if len(filtered) < len(file_list):
-            print(f"  Excluded {len(file_list) - len(filtered)} known bad files")
+        # Try opening every file once; drop anything that won't load. This
+        # makes __getitem__ deterministic (no errors / None batches at train
+        # time) and keeps batch sizes equal across ranks under DDP.
+        candidate_paths = [os.path.join(data_dir, f.strip()) for f in file_list]
+        n_total = len(candidate_paths)
+        valid_paths = []
+        for i, p in enumerate(candidate_paths):
+            if _can_load_h5(p):
+                valid_paths.append(p)
+            if (i + 1) % 500 == 0 or (i + 1) == n_total:
+                print(f"  Validating h5 files: {i + 1}/{n_total} (kept {len(valid_paths)})", flush=True)
+        if len(valid_paths) < n_total:
+            print(f"  Dropped {n_total - len(valid_paths)} unreadable h5 files")
 
-        self.file_list = [os.path.join(data_dir, f.strip()) for f in filtered]
+        self.file_list = valid_paths
         self.window_duration = window_duration
         self.fixed_start = fixed_start
         self.clip = clip
@@ -378,39 +386,9 @@ class H5EEGDataset(Dataset):
         }
 
 
-class SafeDataset(Dataset):
-    """Wraps a dataset and returns None for any item that raises an exception."""
-
-    def __init__(self, dataset):
-        self.dataset = dataset
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, idx):
-        try:
-            return self.dataset[idx]
-        except Exception:
-            return None
-
-
 # ---------------------------------------------------------------------------
 # DataLoader helpers
 # ---------------------------------------------------------------------------
-
-def safe_collate_fn(batch):
-    """Filter None items, collate the rest, attach n_skipped to the dict."""
-    n_skipped = sum(1 for item in batch if item is None)
-    batch = [item for item in batch if item is not None]
-    if len(batch) == 0:
-        return None
-    try:
-        collated = torch.utils.data.dataloader.default_collate(batch)
-        collated['n_skipped'] = n_skipped
-        return collated
-    except Exception:
-        return None
-
 
 def worker_init_fn(_):
     """Limit thread counts and aggressively return memory from malloc arenas."""
@@ -435,8 +413,6 @@ def _files_from_csv(csv_path, h5_dir, split):
     files = []
     for fname in sorted(os.listdir(h5_dir)):
         if not fname.endswith('.h5'):
-            continue
-        if os.path.basename(fname) in BAD_H5_FILES:
             continue
         if fname.split('_')[0] in patient_ids:
             files.append(fname)
@@ -465,7 +441,7 @@ def _make_loader(file_list_path, args, shuffle):
 
     cfg = args.preprocessing
     mask_cfg = cfg.masking
-    dataset = SafeDataset(H5EEGDataset(
+    dataset = H5EEGDataset(
         file_list=file_list,
         data_dir=args.data.h5_dir,
         window_duration=cfg.window_duration,
@@ -478,7 +454,7 @@ def _make_loader(file_list_path, args, shuffle):
         dropout_ratio=mask_cfg.dropout_ratio,
         dropout_radius=mask_cfg.dropout_radius,
         **_mm_kwargs_from_args(args, mode='train' if shuffle else 'val'),
-    ))
+    )
     print(f"  {'Train' if shuffle else 'Val'} dataset: {len(dataset):,} files")
 
     nw = args.data.loader.num_workers
@@ -491,7 +467,6 @@ def _make_loader(file_list_path, args, shuffle):
         drop_last=shuffle,
         prefetch_factor=args.data.loader.prefetch_factor if nw > 0 else None,
         persistent_workers=False,
-        collate_fn=safe_collate_fn,
         worker_init_fn=worker_init_fn,
     )
     return loader, len(dataset)
@@ -500,7 +475,7 @@ def _make_loader(file_list_path, args, shuffle):
 def _make_loader_from_list(file_list, args, shuffle):
     cfg = args.preprocessing
     mask_cfg = cfg.masking
-    dataset = SafeDataset(H5EEGDataset(
+    dataset = H5EEGDataset(
         file_list=file_list,
         data_dir=args.data.h5_dir,
         window_duration=cfg.window_duration,
@@ -514,7 +489,7 @@ def _make_loader_from_list(file_list, args, shuffle):
         dropout_radius=mask_cfg.dropout_radius,
         fixed_start=not shuffle,
         **_mm_kwargs_from_args(args, mode='train' if shuffle else 'val'),
-    ))
+    )
     print(f"  {'Train' if shuffle else 'Val'} dataset: {len(dataset):,} files")
     nw = args.data.loader.num_workers
     loader = DataLoader(
@@ -526,7 +501,6 @@ def _make_loader_from_list(file_list, args, shuffle):
         drop_last=shuffle,
         prefetch_factor=args.data.loader.prefetch_factor if nw > 0 else None,
         persistent_workers=False,
-        collate_fn=safe_collate_fn,
         worker_init_fn=worker_init_fn,
     )
     return loader, len(dataset)
