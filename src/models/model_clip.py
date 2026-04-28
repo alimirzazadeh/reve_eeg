@@ -38,7 +38,7 @@ class MultiModalEncoder(nn.Module):
         reve_noise_ratio: float = 0.0025,
         reve_num_channels: int = 19,
         reve_checkpoint_path: str | None = None,
-        time_pool: str = "mean",
+        pool: str = "time_mean",
         # text
         text_encoder_num_layers: int = 4,
         text_encoder_nhead: int = 8,
@@ -91,13 +91,22 @@ class MultiModalEncoder(nn.Module):
         )
         self.reve_num_channels = reve_num_channels
         self.reve_embed_dim = reve_embed_dim
-        self.time_pool = time_pool
+
+        valid_pool = {"time_mean", "all_mean"}
+        if pool not in valid_pool:
+            raise ValueError(f"pool must be one of {valid_pool}, got {pool!r}")
+        self.pool = pool
 
         if reve_checkpoint_path is not None:
             self._load_reve_weights(reve_checkpoint_path)
 
-        # vision embedding dimension after time-pooling + channel concat
-        vision_width = reve_num_channels * reve_embed_dim
+        # vision embedding dim depends on the pooling strategy:
+        #   time_mean : mean over time, concat channels  → C * E
+        #   all_mean  : mean over both channels and time → E
+        if pool == "time_mean":
+            vision_width = reve_num_channels * reve_embed_dim
+        else:
+            vision_width = reve_embed_dim
 
         # ---- text ----
         self.text_encoder = models_text.TextEncoder(
@@ -205,17 +214,16 @@ class MultiModalEncoder(nn.Module):
         tokens = self.visual(eeg, pos)
         if debug:
             print(f"REVE output tokens shape: {tokens.shape}")
-        # → [B, C, H, E]
-        tokens = rearrange(tokens, "b (c h) e -> b c h e", c=self.reve_num_channels)
-        # pool the time axis
-        if self.time_pool == "mean":
+        if self.pool == "time_mean":
+            # → [B, C, H, E], mean over time, concat channels → [B, C*E]
+            tokens = rearrange(tokens, "b (c h) e -> b c h e", c=self.reve_num_channels)
             tokens = tokens.mean(dim=2)
-        elif self.time_pool == "max":
-            tokens = tokens.max(dim=2).values
+            tokens = rearrange(tokens, "b c e -> b (c e)")
+        elif self.pool == "all_mean":
+            # mean over the full channel-time token sequence → [B, E]
+            tokens = tokens.mean(dim=1)
         else:
-            raise ValueError(f"Unknown time_pool: {self.time_pool}")
-        # concat channels → [B, C*E]
-        tokens = rearrange(tokens, "b c e -> b (c e)")
+            raise ValueError(f"Unknown pool: {self.pool}")
         return tokens
 
     def forward(self, data_dict, debug: bool = False) -> dict:

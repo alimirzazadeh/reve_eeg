@@ -59,7 +59,7 @@ clip:
     # path to a pretrained REVE encoder.pth (file saved by train.py).
     # Set to null to skip loading and train REVE from scratch.
     checkpoint_path: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_pretrain_checkpoints/states/pretrain_h5/encoder_final.pth
-    time_pool: mean        # mean | max
+    pool: all_mean        # time_mean (mean over H, concat C → [B, C*E]) | all_mean (mean over C*H → [B, E])
 
   text:
     num_layers: 4                                    # text_model_num_layers
@@ -106,7 +106,7 @@ clip:
 # ---------------------------------------------------------------------------
 data:
   h5_dir: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
-  split_csv: ${cwd:}/utils/patient_train_val_test_split.csv
+  split_csv: /home/pengcao/orcd/scratch/reve_eeg/src/utils/patient_train_val_test_split.csv
   path: /orcd/compute/dinaktbi/001/2026/EEG_FM/preprocessed_eeg_v2
   loader:
     num_workers: ${min:16, ${cpu_count:}}

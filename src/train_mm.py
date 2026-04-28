@@ -44,7 +44,7 @@ def build_model(args) -> MultiModalEncoder:
         reve_noise_ratio=enc.noise_ratio,
         reve_num_channels=clip.reve.num_channels,
         reve_checkpoint_path=clip.reve.checkpoint_path,
-        time_pool=clip.reve.time_pool,
+        pool=clip.reve.pool,
         # text
         text_encoder_num_layers=clip.text.num_layers,
         text_encoder_nhead=clip.text.nhead,
