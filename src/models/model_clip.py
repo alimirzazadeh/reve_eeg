@@ -1,5 +1,7 @@
 """Multimodal CLIP-style encoder using REVE as the EEG vision backbone."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from types import SimpleNamespace
 
