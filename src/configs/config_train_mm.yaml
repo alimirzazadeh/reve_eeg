@@ -24,7 +24,7 @@ scratch: /orcd/compute/dinaktbi/001/2026/EEG_FM/reve_clip
 # CLI, e.g. `mode=debug debug.epochs=1 debug.max_files=10`.
 # ---------------------------------------------------------------------------
 debug:
-  epochs: 2
+  epochs: 20
   batch_size: 32
   num_workers: 0
   prefetch_factor: null
