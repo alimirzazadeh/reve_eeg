@@ -1,11 +1,11 @@
 defaults:
-  - _self_
   - encoder: base
   - decoder: base       # unused, kept so existing helpers / validators still resolve
   - optimizer: adamw    # matches argparse defaults (AdamW)
   - scheduler: trapezoid
   - preprocessing: default
   - init: mae
+  - _self_
 
 name: train_mm
 
