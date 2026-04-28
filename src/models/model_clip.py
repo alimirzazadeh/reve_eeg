@@ -174,6 +174,8 @@ class MultiModalEncoder(nn.Module):
                 if new_k.startswith(prefix):
                     new_k = new_k[len(prefix):]
             cleaned[new_k] = v
+        
+        print(f"Loading REVE weights from {ckpt_path}, total={len(cleaned)}...")
 
         missing, unexpected = self.visual.load_state_dict(cleaned, strict=False)
         print(
