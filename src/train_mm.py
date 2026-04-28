@@ -113,15 +113,37 @@ def apply_debug_overrides(args):
     print("=" * 60)
 
 
+def scale_lr(args, world_size: int) -> None:
+    """Apply linear LR scaling: lr = blr * batch_size * world_size / 256.
+    Skipped when args.trainer.auto_scale_lr is False or absent — the manually
+    specified args.trainer.lr is then used as-is.
+    """
+    if not getattr(args.trainer, "auto_scale_lr", True):
+        return
+    blr = float(args.trainer.blr)
+    bs = int(args.trainer.batch_size)
+    accum = int(getattr(args.trainer, "accumulate_grad_batches", 1))
+    scaled = blr * bs * max(1, world_size) * accum / 256.0
+    print(
+        f"Scaling LR: blr={blr} * bs={bs} * world_size={max(1, world_size)} "
+        f"* accum={accum} / 256 = {scaled:.3e} (was trainer.lr={args.trainer.lr})"
+    )
+    args.trainer.lr = scaled
+
+
 def train_clip(args):
     if args.mode == "debug":
         apply_debug_overrides(args)
-    OmegaConf.resolve(args)
-    init_time = time.time()
 
+    # Build accelerator first so we know the real world size, then scale LR
+    # before resolving interpolations (scheduler.peak_lr / end_lr reference
+    # ${trainer.lr}).
+    init_time = time.time()
     args.checkpointing.state_path = "{:}/{:}".format(args.checkpointing.state_path, args.name)
 
     accelerator = get_accelerator(args)
+    scale_lr(args, world_size=accelerator.num_processes)
+    OmegaConf.resolve(args)
     logger.info("Starting multimodal CLIP training")
 
     model = build_model(args)
@@ -142,7 +164,10 @@ def train_clip(args):
         "Scheduler steps:", n_iter_for_sched,
     )
 
-    model = ensure_type(accelerator.prepare(model), MultiModalEncoder)
+    # Under multi-GPU, accelerator.prepare wraps the model in DDP, so we
+    # cannot ensure_type it back to MultiModalEncoder. Use unwrap_model later
+    # if you need to access fields on the underlying module.
+    model = accelerator.prepare(model)
     optimizer = get_optimizer(model.parameters(), args.optimizer)
     scheduler = get_lr_scheduler(optimizer, args, n_iter_for_sched)
 

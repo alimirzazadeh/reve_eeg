@@ -130,9 +130,12 @@ trainer:
   accumulate_grad_batches: 1                         # accum_iter
   batch_size: 32                                     # batch_size (per GPU)
   blr: 1.0e-3                                        # blr (base lr; absolute_lr = blr * total_bs / 256)
-  # Default below = blr * batch_size / 256 (single GPU). For multi-GPU, override on the CLI:
-  #   trainer.lr=$(python -c 'print(1e-3 * 32 * NGPUS / 256)')
-  lr: 1.25e-4
+  # `lr` is auto-scaled at runtime by `scale_lr()` in train_mm.py:
+  #   lr = blr * batch_size * world_size * accumulate_grad_batches / 256
+  # Override behaviour by setting auto_scale_lr=False and trainer.lr=<value>
+  # on the CLI.
+  lr: 1.25e-4                                        # placeholder; overwritten by scale_lr()
+  auto_scale_lr: True
   grad_clip: True
   grad_clip_norm: 5.0                                # grad_clip
 
