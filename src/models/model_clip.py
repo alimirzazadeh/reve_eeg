@@ -38,7 +38,6 @@ class MultiModalEncoder(nn.Module):
         reve_noise_ratio: float = 0.0025,
         reve_num_channels: int = 19,
         reve_checkpoint_path: str | None = None,
-        freeze_reve: bool = False,
         time_pool: str = "mean",
         # text
         text_encoder_num_layers: int = 4,
