@@ -69,6 +69,8 @@ def wrap_trapz_lr(args, n_iter):
         c_steps = int(args.cooldown_steps * n_iter)
         p_steps = n_iter - w_steps - c_steps
 
+        print("DEBUG: LR Scheduler", w_steps, c_steps, p_steps)
+
         args.warmup_steps = w_steps
         args.plateau_steps = p_steps
         args.cooldown_steps = c_steps

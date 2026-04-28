@@ -168,6 +168,11 @@ def train_clip(args):
     n_iter_per_train = len(train_loader)
     full_run = getattr(args, "scheduler_full_run", False)
     n_iter_for_sched = n_iter_per_train * args.trainer.epochs if full_run else n_iter_per_train
+
+
+    print("DEBUG: n_iter_per_train", n_iter_per_train, "n_iter_for_sched", n_iter_for_sched)
+
+
     accelerator.print(
         "Train files:", len_train, "Train batches/process:", n_iter_per_train,
         "N GPUs:", args.trainer.n_gpus,
