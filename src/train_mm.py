@@ -156,23 +156,26 @@ def train_clip(args):
         train_loader, len_train = _make_loader_from_list(file_list, args, shuffle=True)
     else:
         train_loader, len_train = get_h5_train_loader(args)
-    n_iter_per_train = len(train_loader)
-    full_run = getattr(args, "scheduler_full_run", False)
-    n_iter_for_sched = n_iter_per_train * args.trainer.epochs if full_run else n_iter_per_train
-    accelerator.print(
-        "Train files:", len_train, "Train batches:", n_iter_per_train,
-        "N GPUs:", args.trainer.n_gpus,
-        "Scheduler steps:", n_iter_for_sched,
-    )
 
     # Under multi-GPU, accelerator.prepare wraps the model in DDP, so we
     # cannot ensure_type it back to MultiModalEncoder. Use unwrap_model later
     # if you need to access fields on the underlying module.
     model = accelerator.prepare(model)
+    train_loader = ensure_type(accelerator.prepare(train_loader), DataLoader)
+
+    # len(prepared loader) is per-process — needed so the scheduler advances
+    # at the right rate (each process calls scheduler.step() once per batch).
+    n_iter_per_train = len(train_loader)
+    full_run = getattr(args, "scheduler_full_run", False)
+    n_iter_for_sched = n_iter_per_train * args.trainer.epochs if full_run else n_iter_per_train
+    accelerator.print(
+        "Train files:", len_train, "Train batches/process:", n_iter_per_train,
+        "N GPUs:", args.trainer.n_gpus,
+        "Scheduler steps:", n_iter_for_sched,
+    )
+
     optimizer = get_optimizer(model.parameters(), args.optimizer)
     scheduler = get_lr_scheduler(optimizer, args, n_iter_for_sched)
-
-    train_loader = ensure_type(accelerator.prepare(train_loader), DataLoader)
     optimizer = ensure_type(accelerator.prepare(optimizer), Optimizer)
     scheduler = ensure_type(accelerator.prepare(scheduler), AcceleratedScheduler)
     model.train()
