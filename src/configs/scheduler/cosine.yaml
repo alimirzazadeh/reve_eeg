@@ -1,0 +1,5 @@
+_target_: utils.optim.CosineWarmupLR
+warmup_steps: 0.05        # fraction of total steps used for linear warmup
+start_lr: 1.0e-6
+peak_lr: ${trainer.lr}
+end_lr: 0.0               # cosine-decays peak_lr -> end_lr after warmup

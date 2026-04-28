@@ -2,6 +2,8 @@ from __future__ import annotations
 
 """Optimizer and scheduler factories, including trapezoid LR schedule wrapping."""
 
+import math
+
 import hydra
 import torch
 
@@ -60,6 +62,45 @@ class CyclicTrapezoidLR(torch.optim.lr_scheduler._LRScheduler):
         return self.get_lr()
 
 
+class CosineWarmupLR(torch.optim.lr_scheduler._LRScheduler):
+    """Linear warmup from start_lr -> peak_lr, then half-cosine decay to end_lr."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_steps: int,
+        total_steps: int,
+        start_lr: float,
+        peak_lr: float,
+        end_lr: float,
+        last_epoch: int = -1,
+    ):
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        self.start_lr = start_lr
+        self.peak_lr = peak_lr
+        self.end_lr = end_lr
+
+        super().__init__(optimizer, last_epoch)
+
+    def get_lr(self) -> list[float | torch.Tensor]:
+        step = self.last_epoch
+        if step < self.warmup_steps:
+            progress = step / max(1, self.warmup_steps)
+            lr = self.start_lr + (self.peak_lr - self.start_lr) * progress
+        elif step < self.total_steps:
+            decay_steps = max(1, self.total_steps - self.warmup_steps)
+            progress = (step - self.warmup_steps) / decay_steps
+            lr = self.end_lr + 0.5 * (self.peak_lr - self.end_lr) * (1 + math.cos(math.pi * progress))
+        else:
+            lr = self.end_lr
+
+        return [lr for _ in self.optimizer.param_groups]
+
+    def _get_closed_form_lr(self):
+        return self.get_lr()
+
+
 def wrap_trapz_lr(args, n_iter):
     # Convert the relative steps to absolute steps
     if args["_target_"] == "utils.optim.CyclicTrapezoidLR":
@@ -96,5 +137,14 @@ def get_lr_scheduler(optimizer, config, n_iter):
     - **kwargs: The keyword arguments to pass to the target class
     """
     args = config.scheduler
-    args = wrap_trapz_lr(args, n_iter)
+    target = args["_target_"]
+    if target == "utils.optim.CyclicTrapezoidLR":
+        args = wrap_trapz_lr(args, n_iter)
+        return hydra.utils.instantiate(args, optimizer=optimizer)
+    if target == "utils.optim.CosineWarmupLR":
+        w_steps = int(float(args.warmup_steps) * n_iter)
+        print("DEBUG: Cosine LR Scheduler", "warmup_steps", w_steps, "total_steps", n_iter)
+        return hydra.utils.instantiate(
+            args, optimizer=optimizer, warmup_steps=w_steps, total_steps=n_iter,
+        )
     return hydra.utils.instantiate(args, optimizer=optimizer)

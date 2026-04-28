@@ -2,7 +2,7 @@ defaults:
   - encoder: base
   - decoder: base       # unused, kept so existing helpers / validators still resolve
   - optimizer: adamw    # matches argparse defaults (AdamW)
-  - scheduler: trapezoid
+  - scheduler: cosine
   - preprocessing: default
   - init: mae
   - _self_
@@ -33,9 +33,8 @@ debug:
   log_every: 1
 
 # ---------------------------------------------------------------------------
-# Optimizer / scheduler overrides to match the argparse-based pre-training
-# defaults: AdamW(wd=0.1, betas=(0.9, 0.95), eps=1e-8); 1-epoch warmup over
-# 20 epochs (= 5%), then constant LR (no cooldown).
+# Optimizer / scheduler overrides: AdamW(wd=0.1, betas=(0.9, 0.95), eps=1e-8);
+# 1-epoch linear warmup over 20 epochs (= 5%), then half-cosine decay to 0.
 # ---------------------------------------------------------------------------
 optimizer:
   weight_decay: 0.1
@@ -44,11 +43,9 @@ optimizer:
 
 scheduler:
   warmup_steps: 0.05      # 1 / trainer.epochs (1-epoch warmup over 20 epochs)
-  plateau_steps: 0.95     # constant LR for the rest of training
-  cooldown_steps: 0.0
   start_lr: 1.0e-6
   peak_lr: ${trainer.lr}
-  end_lr: ${trainer.lr}   # constant after warmup (no cooldown)
+  end_lr: 0.0             # cosine decay from peak_lr -> end_lr after warmup
 
 # ---------------------------------------------------------------------------
 # Multimodal CLIP model + loss settings (mirrors the argparse defaults)
