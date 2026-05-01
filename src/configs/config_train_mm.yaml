@@ -144,6 +144,13 @@ trainer:
   n_gpus: ${gpu_count:}
   n_nodes: 1
 
+  # Exponential moving average of model weights. Updated after every
+  # optimizer step; validation runs on both the live model and the EMA
+  # copy (logged under val_ema/*). Memory cost ≈ one extra model copy.
+  ema:
+    enabled: True
+    decay: 0.9999
+
 # Stretch the LR schedule across the entire run (warmup_epochs=1 / constant
 # after) instead of cycling it every epoch, matching the argparse-based setup.
 scheduler_full_run: True

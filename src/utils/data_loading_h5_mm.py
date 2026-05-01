@@ -518,10 +518,5 @@ def get_h5_val_loader(args):
     split_csv = getattr(args.data, "split_csv", None)
     if split_csv:
         file_list = _files_from_csv(split_csv, args.data.h5_dir, "val")
-        if not file_list:
-            return None, 0
-        return _make_loader_from_list(file_list, args, shuffle=False)
-    val_file_list = getattr(args.data, "val_file_list", None)
-    if not val_file_list:
-        return None, 0
-    return _make_loader(val_file_list, args, shuffle=False)
+        return _make_loader_from_list(file_list, args, shuffle=True)
+    return _make_loader(args.data.val_file_list, args, shuffle=True)

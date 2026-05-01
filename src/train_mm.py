@@ -5,6 +5,7 @@ import time
 from os.path import join as pjoin
 
 import hydra
+import torch
 from accelerate.scheduler import AcceleratedScheduler
 from omegaconf import OmegaConf
 from torch.optim import Optimizer
@@ -18,8 +19,10 @@ from utils.data_loading_h5_mm import (
     _files_from_csv,
     _make_loader_from_list,
     get_h5_train_loader,
+    get_h5_val_loader,
 )
 from utils.ddp_setup import ensure_type, get_accelerator, get_logger, save_state
+from utils.ema import ModelEMA
 from utils.optim import get_lr_scheduler, get_optimizer
 
 
@@ -132,6 +135,40 @@ def scale_lr(args, world_size: int) -> None:
     args.trainer.lr = scaled
 
 
+@torch.no_grad()
+def run_validation(model, loss_fn, val_loader, accelerator, epoch, prefix="val"):
+    """Compute mean CLIP losses over the val set. Returns dict of {prefix}/* metrics."""
+    was_training = model.training
+    model.eval()
+    sum_loss = 0.0
+    sum_img_txt = 0.0
+    sum_img_profile = 0.0
+    sum_txt_valid = 0.0
+    sum_profile_valid = 0.0
+    n_batches = 0
+    for batch in val_loader:
+        with accelerator.autocast():
+            outputs = model(batch)
+            loss_dict = loss_fn(outputs)
+        sum_loss += loss_dict["loss"].item()
+        sum_img_txt += loss_dict["img_txt_loss"].item()
+        sum_img_profile += loss_dict["img_profile_loss"].item()
+        sum_txt_valid += loss_dict["img_txt_valid_count"].item()
+        sum_profile_valid += loss_dict["img_profile_valid_count"].item()
+        n_batches += 1
+    if was_training:
+        model.train()
+    n = max(n_batches, 1)
+    return {
+        f"{prefix}/loss": sum_loss / n,
+        f"{prefix}/img_txt_loss": sum_img_txt / n,
+        f"{prefix}/img_profile_loss": sum_img_profile / n,
+        f"{prefix}/img_txt_valid_count": sum_txt_valid / n,
+        f"{prefix}/img_profile_valid_count": sum_profile_valid / n,
+        f"{prefix}/epoch": epoch,
+    }
+
+
 def train_clip(args):
     if args.mode == "debug":
         apply_debug_overrides(args)
@@ -154,14 +191,30 @@ def train_clip(args):
         file_list = _files_from_csv(args.data.split_csv, args.data.h5_dir, "train")
         file_list = file_list[: args.debug.max_files]
         train_loader, len_train = _make_loader_from_list(file_list, args, shuffle=True)
+        val_files = _files_from_csv(args.data.split_csv, args.data.h5_dir, "val")
+        val_files = val_files[: args.debug.max_files]
+        if val_files:
+            val_loader, len_val = _make_loader_from_list(val_files, args, shuffle=True)
+        else:
+            val_loader, len_val = None, 0
     else:
         train_loader, len_train = get_h5_train_loader(args)
+        val_loader, len_val = get_h5_val_loader(args)
 
     # Under multi-GPU, accelerator.prepare wraps the model in DDP, so we
     # cannot ensure_type it back to MultiModalEncoder. Use unwrap_model later
     # if you need to access fields on the underlying module.
     model = accelerator.prepare(model)
     train_loader = ensure_type(accelerator.prepare(train_loader), DataLoader)
+    if val_loader is not None:
+        val_loader = ensure_type(accelerator.prepare(val_loader), DataLoader)
+
+    ema_cfg = getattr(args.trainer, "ema", None)
+    ema = (
+        ModelEMA(accelerator.unwrap_model(model), decay=ema_cfg.decay)
+        if ema_cfg is not None and ema_cfg.enabled
+        else None
+    )
 
     # len(prepared loader) is per-process — needed so the scheduler advances
     # at the right rate (each process calls scheduler.step() once per batch).
@@ -173,8 +226,10 @@ def train_clip(args):
     print("DEBUG: n_iter_per_train", n_iter_per_train, "n_iter_for_sched", n_iter_for_sched)
 
 
+    n_iter_per_val = len(val_loader) if val_loader is not None else 0
     accelerator.print(
         "Train files:", len_train, "Train batches/process:", n_iter_per_train,
+        "Val files:", len_val, "Val batches/process:", n_iter_per_val,
         "N GPUs:", args.trainer.n_gpus,
         "Scheduler steps:", n_iter_for_sched,
     )
@@ -206,6 +261,8 @@ def train_clip(args):
                     accelerator.clip_grad_norm_(model.parameters(), args.trainer.grad_clip_norm)
                 optimizer.step()
 
+            if ema is not None and accelerator.sync_gradients:
+                ema.update(model)
             scheduler.step()
 
             loss_g = loss.item()
@@ -240,6 +297,34 @@ def train_clip(args):
                     }
                 )
 
+        if val_loader is not None:
+            val_metrics = run_validation(model, loss_fn, val_loader, accelerator, epoch)
+            accelerator.print(
+                "Epoch {:3d} val: loss={:.4f} img_txt={:.4f} img_profile={:.4f}".format(
+                    epoch,
+                    val_metrics["val/loss"],
+                    val_metrics["val/img_txt_loss"],
+                    val_metrics["val/img_profile_loss"],
+                )
+            )
+            if args.wandb.log:
+                accelerator.log(val_metrics)
+
+            if ema is not None:
+                val_ema_metrics = run_validation(
+                    ema.module, loss_fn, val_loader, accelerator, epoch, prefix="val_ema"
+                )
+                accelerator.print(
+                    "Epoch {:3d} val_ema: loss={:.4f} img_txt={:.4f} img_profile={:.4f}".format(
+                        epoch,
+                        val_ema_metrics["val_ema/loss"],
+                        val_ema_metrics["val_ema/img_txt_loss"],
+                        val_ema_metrics["val_ema/img_profile_loss"],
+                    )
+                )
+                if args.wandb.log:
+                    accelerator.log(val_ema_metrics)
+
         save_state(accelerator, args, epoch)
 
         if accelerator.is_main_process:
@@ -251,6 +336,14 @@ def train_clip(args):
             accelerator.save(unwrapped.state_dict(), model_path)
             accelerator.print(f"Epoch {epoch}: saved encoder to {encoder_path}")
             accelerator.print(f"Epoch {epoch}: saved full model to {model_path}")
+
+            if ema is not None:
+                encoder_ema_path = pjoin(epoch_dir, "encoder_ema.pth")
+                model_ema_path = pjoin(epoch_dir, "model_clip_ema.pth")
+                accelerator.save(ema.module.visual.state_dict(), encoder_ema_path)
+                accelerator.save(ema.state_dict(), model_ema_path)
+                accelerator.print(f"Epoch {epoch}: saved EMA encoder to {encoder_ema_path}")
+                accelerator.print(f"Epoch {epoch}: saved EMA full model to {model_ema_path}")
 
     accelerator.print("Training took", time.time() - init_time, "seconds")
     accelerator.end_training()
