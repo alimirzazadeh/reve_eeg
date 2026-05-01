@@ -127,6 +127,7 @@ class H5EEGDataset(Dataset):
         dropout_ratio=0.1,
         dropout_radius=0.04,
         fixed_start=False,
+        num_chunks_per_sample=1,
         # multimodal args
         disable_clip=False,
         report_dir=DEFAULT_REPORT_DIR,
@@ -154,6 +155,7 @@ class H5EEGDataset(Dataset):
         self.file_list = valid_paths
         self.window_duration = window_duration
         self.fixed_start = fixed_start
+        self.num_chunks_per_sample = max(1, int(num_chunks_per_sample))
         self.clip = clip
         self.masking_ratio = masking_ratio
         self.masking_window = masking_window
@@ -312,6 +314,30 @@ class H5EEGDataset(Dataset):
 
     # ------------------------------------------------------------------
 
+    def _sample_starts(self, max_start):
+        K = self.num_chunks_per_sample
+        if max_start <= 0:
+            return [0] * K
+        if self.fixed_start:
+            if K == 1:
+                return [0]
+            # evenly spaced across [0, max_start]
+            return [int(i * max_start / (K - 1)) for i in range(K)]
+        return [random.randint(0, max_start) for _ in range(K)]
+
+    def _process_chunk(self, raw, channels_lower):
+        T, C_file = raw.shape
+        if T < self.window_duration:
+            pad = np.zeros((self.window_duration - T, C_file), dtype=np.float32)
+            raw = np.concatenate([raw, pad], axis=0)
+        eeg = np.zeros((self.window_duration, NUM_CHANNELS), dtype=np.float32)
+        for col, ch in enumerate(CHANNEL_ORDER):
+            if ch.lower() in channels_lower:
+                eeg[:, col] = raw[:, channels_lower.index(ch.lower())]
+        mean = eeg.mean(axis=0, keepdims=True)
+        std = eeg.std(axis=0, keepdims=True) + 1e-8
+        return torch.from_numpy((eeg - mean) / std).T.float().clip(-self.clip, self.clip)
+
     def __getitem__(self, idx):
         fpath = self.file_list[idx]
         eeg_file = os.path.basename(fpath)
@@ -320,28 +346,20 @@ class H5EEGDataset(Dataset):
             rec = f["recording"]
             total_samples = rec["data"].shape[0]
             max_start = total_samples - self.window_duration
-            start = 0 if self.fixed_start else random.randint(0, max(max_start, 0))
             ch_names_raw = rec["ch_names"][:]
-            raw = rec["data"][start : start + self.window_duration, :]  # (T, C_file)
-
-        T, C_file = raw.shape
-        if T < self.window_duration:
-            pad = np.zeros((self.window_duration - T, C_file), dtype=np.float32)
-            raw = np.concatenate([raw, pad], axis=0)
+            starts = self._sample_starts(max_start)
+            raws = [rec["data"][s : s + self.window_duration, :] for s in starts]
 
         channels_lower = [
             (n.decode() if isinstance(n, bytes) else n).lower() for n in ch_names_raw
         ]
-        eeg = np.zeros((self.window_duration, NUM_CHANNELS), dtype=np.float32)
-        for col, ch in enumerate(CHANNEL_ORDER):
-            if ch.lower() in channels_lower:
-                eeg[:, col] = raw[:, channels_lower.index(ch.lower())]
+        chunks = [self._process_chunk(raw, channels_lower) for raw in raws]
+        eeg_t = torch.stack(chunks, dim=0)  # [K, C, T]
 
-        mean = eeg.mean(axis=0, keepdims=True)
-        std = eeg.std(axis=0, keepdims=True) + 1e-8
-        eeg_t = torch.from_numpy((eeg - mean) / std).T.float().clip(-self.clip, self.clip)
-
-        _, h_patches, _ = eeg_t.unfold(1, self.masking_window, self.masking_window - self.masking_overlap).shape
+        # Masks are not consumed by the CLIP model; keep a single mask per
+        # sample (using the first chunk's shape) to preserve the existing
+        # output schema without paying for K masks.
+        _, h_patches, _ = chunks[0].unfold(1, self.masking_window, self.masking_window - self.masking_overlap).shape
         batch_mask, batch_unmask = create_block_masks(
             NUM_CHANNELS, self.masking_ratio, self.radius_spat_mask, self.radius_temp_mask,
             h_patches, self._positions_np, self.dropout_ratio, self.dropout_radius,
@@ -431,6 +449,7 @@ def _mm_kwargs_from_args(args, mode):
         max_text_length=getattr(data_cfg, 'max_text_length', 256),
         max_num_disease=getattr(data_cfg, 'max_num_disease', 30),
         max_num_medication=getattr(data_cfg, 'max_num_medication', 50),
+        num_chunks_per_sample=getattr(data_cfg, 'num_chunks_per_sample', 1),
         mode=mode,
     )
 

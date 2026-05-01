@@ -250,7 +250,17 @@ class MultiModalEncoder(nn.Module):
         medication_mask = data_dict["medication_mask"]
 
         # ---- image ----
-        img_embed_raw = self.encode_image(eeg, pos, debug=debug)  # [B, C*E]
+        # eeg may arrive as [B, C, T] (K=1, legacy) or [B, K, C, T]. Normalize
+        # to the latter, fold K into the batch for the visual forward, then
+        # mean-pool over chunks before projection.
+        if eeg.dim() == 3:
+            eeg = eeg.unsqueeze(1)
+        B, K, C, T = eeg.shape
+        eeg_flat = rearrange(eeg, "b k c t -> (b k) c t")
+        pos_flat = pos.repeat_interleave(K, dim=0)
+        img_embed_raw = self.encode_image(eeg_flat, pos_flat, debug=debug)  # [B*K, vision_width]
+        if K > 1:
+            img_embed_raw = rearrange(img_embed_raw, "(b k) e -> b k e", b=B, k=K).mean(dim=1)
 
         if debug:
             print(f"Raw image embedding shape (pre-projection): {img_embed_raw.shape}")

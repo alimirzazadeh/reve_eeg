@@ -118,6 +118,9 @@ data:
   max_text_length: ${clip.text.context_length}
   max_num_disease: 30
   max_num_medication: 50
+  # Number of EEG windows per file per sample. >1 chunks are encoded
+  # independently by REVE and mean-pooled before CLIP projection.
+  num_chunks_per_sample: 1
 
 # ---------------------------------------------------------------------------
 # Trainer
