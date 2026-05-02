@@ -29,7 +29,8 @@ logger = get_logger(__name__)
 register_resolvers()
 
 
-@hydra.main(version_base=None, config_name="config_train_mm", config_path="configs")
+@hydra.main(version_base=None, config_
+            ="config_train_mm", config_path="configs")
 def main(args):
     # eval-specific knobs (with defaults so existing config stays untouched)
     eval_cfg = OmegaConf.create(
